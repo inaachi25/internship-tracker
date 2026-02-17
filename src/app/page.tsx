@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react"; // Added useEffect here
+import { useState, useMemo, useEffect } from "react";
 import SetupPanel from "@/components/SetupPanel";
 import ProgressCard from "@/components/ProgressCard";
 import Calendar from "@/components/Calendar";
@@ -16,12 +16,12 @@ type Tab = "tracker" | "checkin" | "projects";
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("tracker");
 
-  // ── Settings (Starting blank for a fresh reset state) ──────────────────────
+  // ── Settings (Initialized blank to match your "Start Planning" UI) ────────
   const [requiredHours, setRequiredHours] = useState<number | "">("");
   const [hoursPerDay, setHoursPerDay] = useState(0);
   const [startDate, setStartDate] = useState("");
   const [excludeHolidays, setExcludeHolidays] = useState(false);
-  const [workDays, setWorkDays] = useState<number[]>([0,0,0,0,0,0,0]); // 0-6 for Sun-Sat, default all false""]);
+  const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]); 
   const [projectionMode, setProjectionMode] = useState<"manual" | "auto">("manual");
   const [manualLogs, setManualLogs] = useState<Log[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function Home() {
 
   // ── PERSISTENCE LOGIC ──────────────────────────────────────────
 
-  // 1. LOAD DATA (Runs once when browser opens)
+  // 1. LOAD DATA: Checks the device storage when the page opens
   useEffect(() => {
     const saved = localStorage.getItem("internship_tracker_data");
     if (saved) {
@@ -52,10 +52,10 @@ export default function Home() {
     }
   }, []);
 
-  // 2. SAVE DATA (Runs whenever any state changes)
+  // 2. SAVE DATA: Automatically updates the device storage on any change
   useEffect(() => {
-    // We only save if there is actually a project started to avoid saving "blank" over good data
-    if (startDate || requiredHours || manualLogs.length > 0) {
+    // Only save if the user has actually entered some basic info
+    if (startDate !== "" || requiredHours !== "" || manualLogs.length > 0) {
       const dataToSave = {
         requiredHours,
         hoursPerDay,
@@ -109,7 +109,7 @@ export default function Home() {
     return [...manualLogs].sort((a, b) => a.date.localeCompare(b.date));
   }, [projectionMode, autoLogs, manualLogs]);
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Stats Calculation ──────────────────────────────────────────────────────
   const rh = Number(requiredHours) || 0;
   const totalLoggedHours = activeLogs.reduce((s, l) => l.status === "Worked" ? s + l.hours + l.overtime : s, 0);
   const isGoalReached = rh > 0 && totalLoggedHours >= rh;
@@ -150,11 +150,11 @@ export default function Home() {
       setManualLogs([]);
       setExcludeHolidays(false);
       setWorkDays([1, 2, 3, 4, 5]);
-      setProjectionMode("auto");
+      setProjectionMode("manual");
       setSelectedDate(null);
       setCheckins([]);
       setProjects([]);
-      window.location.reload(); // Refresh to ensure a clean slate
+      window.location.reload(); 
     }
   };
 
