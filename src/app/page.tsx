@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react"; // Added useEffect here
 import SetupPanel from "@/components/SetupPanel";
 import ProgressCard from "@/components/ProgressCard";
 import Calendar from "@/components/Calendar";
@@ -16,64 +16,64 @@ type Tab = "tracker" | "checkin" | "projects";
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("tracker");
 
-  // ── Settings (blank after reset) ─────────────────────────────────────────
-  const [requiredHours, setRequiredHours] = useState<number | "">(500);
-  const [hoursPerDay, setHoursPerDay] = useState(8);
-  const [startDate, setStartDate] = useState("2026-02-16");
+  // ── Settings (Starting blank for a fresh reset state) ──────────────────────
+  const [requiredHours, setRequiredHours] = useState<number | "">("");
+  const [hoursPerDay, setHoursPerDay] = useState(0);
+  const [startDate, setStartDate] = useState("");
   const [excludeHolidays, setExcludeHolidays] = useState(false);
-  const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [projectionMode, setProjectionMode] = useState<"manual" | "auto">("auto");
+  const [workDays, setWorkDays] = useState<number[]>([0,0,0,0,0,0,0]); // 0-6 for Sun-Sat, default all false""]);
+  const [projectionMode, setProjectionMode] = useState<"manual" | "auto">("manual");
   const [manualLogs, setManualLogs] = useState<Log[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
-
-  // ── Weekly check-ins & Projects ──────────────────────────────────────────
   const [checkins, setCheckins] = useState<WeeklyCheckin[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
   // ── PERSISTENCE LOGIC ──────────────────────────────────────────
 
-  // 1. LOAD DATA (Runs once on mount)
+  // 1. LOAD DATA (Runs once when browser opens)
   useEffect(() => {
     const saved = localStorage.getItem("internship_tracker_data");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Restore everything
-        setRequiredHours(parsed.requiredHours ?? 500);
-        setHoursPerDay(parsed.hoursPerDay ?? 8);
-        setStartDate(parsed.startDate ?? "2026-02-16");
-        setExcludeHolidays(parsed.excludeHolidays ?? false);
-        setWorkDays(parsed.workDays ?? [1, 2, 3, 4, 5]);
-        setProjectionMode(parsed.projectionMode ?? "auto");
-        setManualLogs(parsed.manualLogs ?? []);
-        setCheckins(parsed.checkins ?? []);
-        setProjects(parsed.projects ?? []);
+        if (parsed.requiredHours !== undefined) setRequiredHours(parsed.requiredHours);
+        if (parsed.hoursPerDay !== undefined) setHoursPerDay(parsed.hoursPerDay);
+        if (parsed.startDate !== undefined) setStartDate(parsed.startDate);
+        if (parsed.excludeHolidays !== undefined) setExcludeHolidays(parsed.excludeHolidays);
+        if (parsed.workDays !== undefined) setWorkDays(parsed.workDays);
+        if (parsed.projectionMode !== undefined) setProjectionMode(parsed.projectionMode);
+        if (parsed.manualLogs !== undefined) setManualLogs(parsed.manualLogs);
+        if (parsed.checkins !== undefined) setCheckins(parsed.checkins);
+        if (parsed.projects !== undefined) setProjects(parsed.projects);
       } catch (e) {
         console.error("Failed to load saved data", e);
       }
     }
   }, []);
 
-  // 2. SAVE DATA (Runs whenever any major state changes)
+  // 2. SAVE DATA (Runs whenever any state changes)
   useEffect(() => {
-    const dataToSave = {
-      requiredHours,
-      hoursPerDay,
-      startDate,
-      excludeHolidays,
-      workDays,
-      projectionMode,
-      manualLogs,
-      checkins,
-      projects
-    };
-    localStorage.setItem("internship_tracker_data", JSON.stringify(dataToSave));
+    // We only save if there is actually a project started to avoid saving "blank" over good data
+    if (startDate || requiredHours || manualLogs.length > 0) {
+      const dataToSave = {
+        requiredHours,
+        hoursPerDay,
+        startDate,
+        excludeHolidays,
+        workDays,
+        projectionMode,
+        manualLogs,
+        checkins,
+        projects
+      };
+      localStorage.setItem("internship_tracker_data", JSON.stringify(dataToSave));
+    }
   }, [requiredHours, hoursPerDay, startDate, excludeHolidays, workDays, projectionMode, manualLogs, checkins, projects]);
-  // ── Derived: is the setup complete enough to start projecting? ────────────
-  const isSetupReady = !!startDate && !!requiredHours && hoursPerDay > 0;
 
-  // ── Auto-projected schedule ───────────────────────────────────────────────
+  // ── Derived Logic ──────────────────────────────────────────────────────────
+  const isSetupReady = !!startDate && !!requiredHours && Number(hoursPerDay) > 0;
+
   const autoLogs = useMemo<Log[]>(() => {
     if (!isSetupReady) return [];
     const rh = Number(requiredHours);
@@ -89,15 +89,14 @@ export default function Home() {
       const holiday = isPhHoliday(ds);
       const blocked = excludeHolidays && !!holiday;
       if (workDays.includes(dow) && !blocked) {
-        logs.push({ date: ds, hours: hoursPerDay, overtime: 0, status: "Worked", note: holiday ? holiday.name : "" });
-        totalHours += hoursPerDay;
+        logs.push({ date: ds, hours: Number(hoursPerDay), overtime: 0, status: "Worked", note: holiday ? holiday.name : "" });
+        totalHours += Number(hoursPerDay);
       }
       cur.setDate(cur.getDate() + 1);
     }
     return logs;
   }, [isSetupReady, startDate, requiredHours, hoursPerDay, workDays, excludeHolidays]);
 
-  // ── Active logs ───────────────────────────────────────────────────────────
   const activeLogs = useMemo<Log[]>(() => {
     if (projectionMode === "auto") {
       const merged = [...autoLogs];
@@ -118,7 +117,7 @@ export default function Home() {
   const remainingHours = isGoalReached ? 0 : rh - totalLoggedHours;
   const progressPercent = rh > 0 ? Math.min((totalLoggedHours / rh) * 100, 100) : 0;
   const workedDays = activeLogs.filter((l) => l.status === "Worked").length;
-  const daysRequired = hoursPerDay > 0 ? Math.ceil(remainingHours / hoursPerDay) : 0;
+  const daysRequired = hoursPerDay > 0 ? Math.ceil(remainingHours / Number(hoursPerDay)) : 0;
 
   const projectedEndDate = useMemo(() => {
     if (!isSetupReady) return "—";
@@ -126,27 +125,10 @@ export default function Home() {
       const d = new Date(autoLogs[autoLogs.length - 1].date + "T00:00:00");
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     }
-    if (hoursPerDay === 0) return "Set hours/day";
-    const needed = isGoalReached ? 0 : Math.ceil(remainingHours / hoursPerDay);
-    if (needed <= 0) {
-      const worked = activeLogs.filter((l) => l.status === "Worked");
-      if (worked.length > 0) {
-        const d = new Date(worked[worked.length - 1].date + "T00:00:00");
-        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-      }
-      return "—";
-    }
-    const end = new Date();
-    let added = 0;
-    while (added < needed) {
-      end.setDate(end.getDate() + 1);
-      const ds = end.toISOString().split("T")[0];
-      if (workDays.includes(end.getDay()) && !(excludeHolidays && !!isPhHoliday(ds))) added++;
-    }
-    return end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  }, [isSetupReady, projectionMode, autoLogs, hoursPerDay, remainingHours, isGoalReached, activeLogs, workDays, excludeHolidays]);
+    return "Calculating...";
+  }, [isSetupReady, projectionMode, autoLogs]);
 
-  // ── Backup download helper (shared with SetupPanel reset modal) ───────────
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleDownloadBackup = () => {
     const backup = {
       version: "3.0", exportedAt: new Date().toISOString(),
@@ -159,18 +141,21 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  // ── Reset — clears everything to blank state ──────────────────────────────
   const handleReset = () => {
-    localStorage.removeItem("internship_tracker_data"); // Clear the physical save file
-    setRequiredHours("");
-    setHoursPerDay(0);
-    setStartDate("");
-    setManualLogs([]);
-    setExcludeHolidays(false);
-    setWorkDays([1, 2, 3, 4, 5]);
-    setProjectionMode("auto");
-    setSelectedDate(null);
-    // NOTE: checkins and projects are preserved on reset (only tracker cleared)
+    if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
+      localStorage.removeItem("internship_tracker_data");
+      setRequiredHours("");
+      setHoursPerDay(0);
+      setStartDate("");
+      setManualLogs([]);
+      setExcludeHolidays(false);
+      setWorkDays([1, 2, 3, 4, 5]);
+      setProjectionMode("auto");
+      setSelectedDate(null);
+      setCheckins([]);
+      setProjects([]);
+      window.location.reload(); // Refresh to ensure a clean slate
+    }
   };
 
   const handleProjectionToggle = (mode: "manual" | "auto") => {
@@ -194,12 +179,13 @@ export default function Home() {
     setSelectedDate(null);
   };
 
-  const handleRestoreBackup = (restored: { settings: AppSettings; logs: Log[] }) => {
+  const handleRestoreBackup = (restored: any) => {
     const s = restored.settings;
     setRequiredHours(s.requiredHours); setHoursPerDay(s.hoursPerDay);
     setStartDate(s.startDate); setWorkDays(s.workDays);
     setExcludeHolidays(s.excludeHolidays); setProjectionMode(s.projectionMode);
-    setManualLogs(restored.logs); setSelectedDate(null); setShowReport(false);
+    setManualLogs(restored.logs); setCheckins(restored.checkins || []); 
+    setProjects(restored.projects || []); setSelectedDate(null); setShowReport(false);
   };
 
   const exportData = {
@@ -218,7 +204,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-rose-50 via-purple-50 to-blue-50 flex flex-col items-center py-8 px-4 text-gray-800">
-      {/* Header */}
       <div className="text-center mb-6">
         <div className="flex justify-center mb-3">
           <div className="bg-gradient-to-br from-rose-200 to-pink-300 rounded-2xl p-4 shadow-lg">
@@ -226,10 +211,9 @@ export default function Home() {
           </div>
         </div>
         <h1 className="text-3xl font-bold text-gray-800 mb-1">Internship Tracker</h1>
-        <p className="text-gray-500 text-sm">Track your hours, exclude off-days, and hit your goal! 🎓</p>
+        <p className="text-gray-500 text-sm">Track your hours and hit your goal! 🎓</p>
       </div>
 
-      {/* Tab nav */}
       <div className="flex gap-2 bg-white rounded-2xl p-1.5 shadow-sm mb-6 w-full max-w-md">
         {TABS.map((tab) => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
@@ -242,7 +226,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ── TRACKER ─────────────────────────────────────────────────────── */}
       {activeTab === "tracker" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 w-full max-w-6xl gap-6">
           <div className="space-y-6">
@@ -276,7 +259,7 @@ export default function Home() {
               <DayDetailsPanel
                 date={selectedDate}
                 log={activeLogs.find((l) => l.date === selectedDate)}
-                defaultHours={hoursPerDay || 1}
+                defaultHours={Number(hoursPerDay) || 1}
                 projects={projects}
                 onSave={handleSaveLog}
                 onDelete={handleDeleteLog}
@@ -287,15 +270,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── WEEKLY CHECK-IN ──────────────────────────────────────────────── */}
-      {activeTab === "checkin" && (
-        <WeeklyCheckinPage checkins={checkins} setCheckins={setCheckins} logs={activeLogs} />
-      )}
-
-      {/* ── PROJECTS ─────────────────────────────────────────────────────── */}
-      {activeTab === "projects" && (
-        <ProjectsPage projects={projects} setProjects={setProjects} logs={activeLogs} />
-      )}
+      {activeTab === "checkin" && <WeeklyCheckinPage checkins={checkins} setCheckins={setCheckins} logs={activeLogs} />}
+      {activeTab === "projects" && <ProjectsPage projects={projects} setProjects={setProjects} logs={activeLogs} />}
 
       <p className="text-xs text-gray-400 mt-8 text-center max-w-md">
         Data stays on your device. Projections update instantly as you change your schedule.
