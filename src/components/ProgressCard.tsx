@@ -10,9 +10,10 @@ type ProgressCardProps = {
   extraHours: number;
   isGoalReached: boolean;
   estimatedEndDate: string;
-  projectedEndDate: string; // Always the projected date from settings, never "Goal reached!"
+  projectedEndDate: string;
   daysRequired: number;
   workedDays: number;
+  projectionMode: "manual" | "auto";
   onViewReport: () => void;
 };
 
@@ -26,8 +27,21 @@ export default function ProgressCard({
   projectedEndDate,
   daysRequired,
   workedDays,
+  projectionMode,
   onViewReport,
 }: ProgressCardProps) {
+  // ── Blank state: no target hours set yet ──────────────────────────────────
+  if (!requiredHours) {
+    return (
+      <section className="bg-white rounded-3xl p-6 border border-dashed border-indigo-200 flex flex-col items-center justify-center text-center min-h-[200px] space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-2xl">🎯</div>
+        <p className="font-bold text-gray-700">To begin, enter your target hours</p>
+        <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+          Fill in the Setup panel — target hours, start date, and hours per day — to activate your progress card and calendar.
+        </p>
+      </section>
+    );
+  }
   const gradient = isGoalReached
     ? "bg-gradient-to-br from-emerald-400 via-teal-500 to-green-600"
     : "bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-700";
