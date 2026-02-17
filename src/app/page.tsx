@@ -31,6 +31,45 @@ export default function Home() {
   const [checkins, setCheckins] = useState<WeeklyCheckin[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
+  // ── PERSISTENCE LOGIC ──────────────────────────────────────────
+
+  // 1. LOAD DATA (Runs once on mount)
+  useEffect(() => {
+    const saved = localStorage.getItem("internship_tracker_data");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Restore everything
+        setRequiredHours(parsed.requiredHours ?? 500);
+        setHoursPerDay(parsed.hoursPerDay ?? 8);
+        setStartDate(parsed.startDate ?? "2026-02-16");
+        setExcludeHolidays(parsed.excludeHolidays ?? false);
+        setWorkDays(parsed.workDays ?? [1, 2, 3, 4, 5]);
+        setProjectionMode(parsed.projectionMode ?? "auto");
+        setManualLogs(parsed.manualLogs ?? []);
+        setCheckins(parsed.checkins ?? []);
+        setProjects(parsed.projects ?? []);
+      } catch (e) {
+        console.error("Failed to load saved data", e);
+      }
+    }
+  }, []);
+
+  // 2. SAVE DATA (Runs whenever any major state changes)
+  useEffect(() => {
+    const dataToSave = {
+      requiredHours,
+      hoursPerDay,
+      startDate,
+      excludeHolidays,
+      workDays,
+      projectionMode,
+      manualLogs,
+      checkins,
+      projects
+    };
+    localStorage.setItem("internship_tracker_data", JSON.stringify(dataToSave));
+  }, [requiredHours, hoursPerDay, startDate, excludeHolidays, workDays, projectionMode, manualLogs, checkins, projects]);
   // ── Derived: is the setup complete enough to start projecting? ────────────
   const isSetupReady = !!startDate && !!requiredHours && hoursPerDay > 0;
 
@@ -122,6 +161,7 @@ export default function Home() {
 
   // ── Reset — clears everything to blank state ──────────────────────────────
   const handleReset = () => {
+    localStorage.removeItem("internship_tracker_data"); // Clear the physical save file
     setRequiredHours("");
     setHoursPerDay(0);
     setStartDate("");
