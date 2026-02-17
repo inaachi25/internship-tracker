@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import SetupPanel from "@/components/SetupPanel";
 import ProgressCard from "@/components/ProgressCard";
 import Calendar from "@/components/Calendar";
 import DayDetailsPanel from "@/components/DayDetailsPanel";
+import ReportModal from "@/components/ReportModal";
+import { isPhHoliday } from "@/data/phHolidays";
 
 export type LogStatus = "Worked" | "Absent" | "Day Off" | "Holiday";
 
@@ -16,168 +18,204 @@ export type Log = {
   note: string;
 };
 
+export type AppSettings = {
+  requiredHours: number;
+  hoursPerDay: number;
+  startDate: string;
+  workDays: number[];
+  excludeHolidays: boolean;
+  projectionMode: "manual" | "auto";
+};
+
 export default function Home() {
+  // ─── Settings ─────────────────────────────────────────────────────────────
   const [requiredHours, setRequiredHours] = useState(500);
   const [hoursPerDay, setHoursPerDay] = useState(1);
   const [startDate, setStartDate] = useState("2026-02-16");
   const [excludeHolidays, setExcludeHolidays] = useState(false);
-  const [workDays, setWorkDays] = useState([1, 2, 3, 4, 5]); // Mon-Fri
-  const [autoProjection, setAutoProjection] = useState<"manual" | "auto">("manual");
-  const [logs, setLogs] = useState<Log[]>([]);
+  const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [projectionMode, setProjectionMode] = useState<"manual" | "auto">("auto");
+  const [manualLogs, setManualLogs] = useState<Log[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
-  // Derived progress
-  const completedHours = logs.reduce((sum, log) => {
-    if (log.status !== "Worked") return sum;
-    return sum + log.hours + log.overtime;
-  }, 0);
+  // ─── Auto-projected schedule ───────────────────────────────────────────────
+  const autoLogs = useMemo<Log[]>(() => {
+    if (!startDate || hoursPerDay <= 0 || requiredHours <= 0) return [];
+    const logs: Log[] = [];
+    let totalHours = 0;
+    const cur = new Date(startDate + "T00:00:00");
+    const limit = new Date(cur);
+    limit.setFullYear(limit.getFullYear() + 5);
 
-  const workedDays = logs.filter(log => log.status === "Worked").length;
-  const remainingHours = Math.max(requiredHours - completedHours, 0);
-  const progressPercent = requiredHours > 0 ? Math.min((completedHours / requiredHours) * 100, 100) : 0;
+    while (totalHours < requiredHours && cur <= limit) {
+      const dow = cur.getDay();
+      const ds = cur.toISOString().split("T")[0];
+      const holiday = isPhHoliday(ds);
+      const blocked = excludeHolidays && !!holiday;
+      if (workDays.includes(dow) && !blocked) {
+        logs.push({
+          date: ds,
+          hours: hoursPerDay,
+          overtime: 0,
+          status: "Worked",
+          note: holiday ? holiday.name : "",
+        });
+        totalHours += hoursPerDay;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return logs;
+  }, [startDate, hoursPerDay, requiredHours, workDays, excludeHolidays]);
+
+  // ─── Active logs ───────────────────────────────────────────────────────────
+  const activeLogs = useMemo<Log[]>(() => {
+    if (projectionMode === "auto") {
+      const merged = [...autoLogs];
+      manualLogs.forEach((ml) => {
+        const idx = merged.findIndex((al) => al.date === ml.date);
+        if (idx >= 0) merged[idx] = ml;
+        else merged.push(ml);
+      });
+      return merged.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    return [...manualLogs].sort((a, b) => a.date.localeCompare(b.date));
+  }, [projectionMode, autoLogs, manualLogs]);
+
+  // ─── Stats ─────────────────────────────────────────────────────────────────
+  const totalLoggedHours = activeLogs.reduce(
+    (sum, l) => (l.status === "Worked" ? sum + l.hours + l.overtime : sum),
+    0
+  );
+  const isGoalReached = totalLoggedHours >= requiredHours;
+  const extraHours = isGoalReached ? totalLoggedHours - requiredHours : 0;
+  const remainingHours = isGoalReached ? 0 : requiredHours - totalLoggedHours;
+  const progressPercent =
+    requiredHours > 0 ? Math.min((totalLoggedHours / requiredHours) * 100, 100) : 0;
+  const workedDays = activeLogs.filter((l) => l.status === "Worked").length;
   const daysRequired = hoursPerDay > 0 ? Math.ceil(remainingHours / hoursPerDay) : 0;
 
-  const estimateEndDate = () => {
-    if (completedHours >= requiredHours) return "Goal reached! 🎉";
-    if (remainingHours === 0) return "Goal reached! 🎉";
-    
-    const remaining = requiredHours - completedHours;
-    if (hoursPerDay === 0) return "Set hours per day";
-    
-    const daysNeeded = Math.ceil(remaining / hoursPerDay);
+  // ── projectedEndDate: ALWAYS a real calendar date, never a text message ────
+  // Used in ProgressCard's "Projected End / Completed On" tile.
+  const projectedEndDate = useMemo(() => {
+    // In auto mode the last auto-log date is the projected completion date.
+    if (projectionMode === "auto" && autoLogs.length > 0) {
+      const last = autoLogs[autoLogs.length - 1];
+      const d = new Date(last.date + "T00:00:00");
+      return d.toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+      });
+    }
+
+    // Manual mode (or no auto logs yet): walk forward from today.
+    if (hoursPerDay === 0) return "Set hours/day";
+    const needed = Math.ceil(
+      (isGoalReached ? 0 : remainingHours) / hoursPerDay
+    );
+    if (needed <= 0 && activeLogs.length > 0) {
+      // Goal reached in manual mode — use the last worked day's date
+      const worked = activeLogs.filter((l) => l.status === "Worked");
+      if (worked.length > 0) {
+        const last = worked[worked.length - 1];
+        const d = new Date(last.date + "T00:00:00");
+        return d.toLocaleDateString("en-US", {
+          month: "short", day: "numeric", year: "numeric",
+        });
+      }
+    }
+
     const end = new Date();
     let added = 0;
-    
-    while (added < daysNeeded) {
+    while (added < needed) {
       end.setDate(end.getDate() + 1);
-      const day = end.getDay();
-      if (workDays.includes(day)) added++;
+      const dow = end.getDay();
+      const ds = end.toISOString().split("T")[0];
+      if (workDays.includes(dow) && !(excludeHolidays && !!isPhHoliday(ds))) added++;
     }
-    
-    return end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
+    return end.toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+  }, [
+    projectionMode, autoLogs, hoursPerDay, remainingHours,
+    isGoalReached, activeLogs, workDays, excludeHolidays,
+  ]);
 
-  const estimatedEndDate = estimateEndDate();
-
+  // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleReset = () => {
     setRequiredHours(500);
     setHoursPerDay(1);
     setStartDate("2026-02-16");
-    setLogs([]);
+    setManualLogs([]);
     setExcludeHolidays(false);
     setWorkDays([1, 2, 3, 4, 5]);
-    setAutoProjection("manual");
+    setProjectionMode("auto");
     setSelectedDate(null);
   };
 
-  const exportCSV = () => {
-    if (logs.length === 0) {
-      alert("No logs to export yet!");
-      return;
+  const handleProjectionToggle = (mode: "manual" | "auto") => {
+    if (mode === "manual" && projectionMode === "auto") {
+      setManualLogs(autoLogs.map((l) => ({ ...l })));
     }
-    
-    const header = "Date,Hours,Overtime,Status,Notes\n";
-    const rows = logs
-      .map((l) => `${l.date},${l.hours},${l.overtime},${l.status},"${l.note}"`)
-      .join("\n");
-
-    const blob = new Blob([header + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `internship_logs_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (mode === "auto" && projectionMode === "manual") {
+      setManualLogs([]);
+    }
+    setProjectionMode(mode);
   };
 
-  // Auto-projection: automatically create logs based on work days
-  const handleAutoProjection = () => {
-    if (!startDate || hoursPerDay === 0) {
-      alert("Please set a start date and hours per day first!");
-      return;
-    }
-
-    const start = new Date(startDate);
-    const projectedLogs: Log[] = [];
-    let totalHours = 0;
-    let currentDate = new Date(start);
-
-    // Generate logs until we reach required hours
-    while (totalHours < requiredHours) {
-      const dayOfWeek = currentDate.getDay();
-      
-      // Check if this is a work day
-      if (workDays.includes(dayOfWeek)) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        
-        // Don't overwrite existing logs
-        if (!logs.find(log => log.date === dateStr)) {
-          projectedLogs.push({
-            date: dateStr,
-            hours: hoursPerDay,
-            overtime: 0,
-            status: "Worked",
-            note: "Auto-projected",
-          });
-          totalHours += hoursPerDay;
-        }
-      }
-      
-      currentDate.setDate(currentDate.getDate() + 1);
-      
-      // Safety check: don't project more than 1 year ahead
-      if (currentDate > new Date(start.getTime() + 365 * 24 * 60 * 60 * 1000)) {
-        break;
-      }
-    }
-
-    setLogs([...logs, ...projectedLogs].sort((a, b) => a.date.localeCompare(b.date)));
-  };
-
-  // When auto projection is enabled, generate logs automatically
-  const handleAutoProjectionToggle = (mode: "manual" | "auto") => {
-    setAutoProjection(mode);
-    if (mode === "auto") {
-      handleAutoProjection();
-    }
-  };
-
-  const handleDayClick = (dateStr: string) => {
-    setSelectedDate(dateStr);
-  };
+  const handleDayClick = (dateStr: string) =>
+    setSelectedDate((prev) => (prev === dateStr ? null : dateStr));
 
   const handleSaveLog = (log: Log) => {
-    const existing = logs.find(l => l.date === log.date);
-    
-    if (existing) {
-      // Update existing log
-      setLogs(logs.map(l => l.date === log.date ? log : l));
-    } else {
-      // Add new log
-      setLogs([...logs, log].sort((a, b) => a.date.localeCompare(b.date)));
-    }
-    
-    setSelectedDate(null);
+    setManualLogs((prev) => {
+      const filtered = prev.filter((l) => l.date !== log.date);
+      return [...filtered, log].sort((a, b) => a.date.localeCompare(b.date));
+    });
+    // Close panel after a short delay so the user sees the "Saved!" state
+    setTimeout(() => setSelectedDate(null), 1400);
   };
 
   const handleDeleteLog = (dateStr: string) => {
-    setLogs(logs.filter(log => log.date !== dateStr));
+    setManualLogs((prev) => prev.filter((l) => l.date !== dateStr));
     setSelectedDate(null);
   };
 
-  const getLogForDate = (dateStr: string) => {
-    return logs.find(log => log.date === dateStr);
+  const handleRestoreBackup = (restored: { settings: AppSettings; logs: Log[] }) => {
+    const s = restored.settings;
+    setRequiredHours(s.requiredHours);
+    setHoursPerDay(s.hoursPerDay);
+    setStartDate(s.startDate);
+    setWorkDays(s.workDays);
+    setExcludeHolidays(s.excludeHolidays);
+    setProjectionMode(s.projectionMode);
+    setManualLogs(restored.logs);
+    setSelectedDate(null);
+    setShowReport(false);
+  };
+
+  const exportData = {
+    settings: {
+      requiredHours, hoursPerDay, startDate,
+      workDays, excludeHolidays, projectionMode,
+    } as AppSettings,
+    logs: activeLogs,
+    stats: {
+      completedHours: totalLoggedHours,
+      remainingHours,
+      extraHours,
+      progressPercent,
+      workedDays,
+      estimatedEndDate: projectedEndDate,
+      isGoalReached,
+    },
   };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-rose-50 via-purple-50 to-blue-50 flex flex-col items-center py-8 px-4 text-gray-800">
-      {/* HEADER */}
+      {/* Header */}
       <div className="text-center mb-8">
         <div className="flex justify-center mb-3">
           <div className="bg-gradient-to-br from-rose-200 to-pink-300 rounded-2xl p-4 shadow-lg">
-            <span role="img" aria-label="heart" className="text-3xl">
-              ❤️
-            </span>
+            <span className="text-3xl">❤️</span>
           </div>
         </div>
         <h1 className="text-3xl font-bold text-gray-800 mb-1">Internship Tracker</h1>
@@ -186,9 +224,8 @@ export default function Home() {
         </p>
       </div>
 
-      {/* MAIN GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-3 w-full max-w-6xl gap-6">
-        {/* LEFT SIDEBAR */}
+        {/* LEFT */}
         <div className="space-y-6">
           <SetupPanel
             requiredHours={requiredHours}
@@ -201,35 +238,39 @@ export default function Home() {
             setExcludeHolidays={setExcludeHolidays}
             workDays={workDays}
             setWorkDays={setWorkDays}
-            autoProjection={autoProjection}
-            setAutoProjection={handleAutoProjectionToggle}
+            projectionMode={projectionMode}
+            setProjectionMode={handleProjectionToggle}
             onReset={handleReset}
           />
-
           <ProgressCard
-            completedHours={completedHours}
+            completedHours={totalLoggedHours}
             requiredHours={requiredHours}
             progressPercent={progressPercent}
             remainingHours={remainingHours}
-            estimatedEndDate={estimatedEndDate}
+            extraHours={extraHours}
+            isGoalReached={isGoalReached}
+            estimatedEndDate={projectedEndDate}   // kept for ReportModal compat
+            projectedEndDate={projectedEndDate}   // always a real date
             daysRequired={daysRequired}
             workedDays={workedDays}
-            onExport={exportCSV}
+            onViewReport={() => setShowReport(true)}
           />
         </div>
 
-        {/* CALENDAR & DAY DETAILS */}
-        <div className="lg:col-span-2 space-y-6">
-          <Calendar 
-            logs={logs} 
+        {/* RIGHT */}
+        <div className="lg:col-span-2 space-y-4">
+          <Calendar
+            logs={activeLogs}
+            autoLogs={autoLogs}
+            projectionMode={projectionMode}
             onDayClick={handleDayClick}
             selectedDate={selectedDate}
+            excludeHolidays={excludeHolidays}
           />
-
           {selectedDate && (
             <DayDetailsPanel
               date={selectedDate}
-              log={getLogForDate(selectedDate)}
+              log={activeLogs.find((l) => l.date === selectedDate)}
               defaultHours={hoursPerDay}
               onSave={handleSaveLog}
               onDelete={handleDeleteLog}
@@ -239,10 +280,17 @@ export default function Home() {
         </div>
       </div>
 
-      {/* FOOTER NOTE */}
       <p className="text-xs text-gray-400 mt-8 text-center max-w-md">
         Data stays on your device. Projections update instantly as you change your schedule.
       </p>
+
+      {showReport && (
+        <ReportModal
+          data={exportData}
+          onClose={() => setShowReport(false)}
+          onRestoreBackup={handleRestoreBackup}
+        />
+      )}
     </main>
   );
 }

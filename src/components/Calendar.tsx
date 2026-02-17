@@ -1,151 +1,229 @@
-import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import { Log } from "@/app/page";
+import { isPhHoliday } from "@/data/phHolidays";
 
 type CalendarProps = {
   logs: Log[];
+  autoLogs: Log[];
+  projectionMode: "manual" | "auto";
   onDayClick: (dateStr: string) => void;
   selectedDate: string | null;
+  excludeHolidays: boolean;
 };
 
-export default function Calendar({ logs, onDayClick, selectedDate }: CalendarProps) {
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 1)); // February 2026
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const DAY_HEADERS = ["S","M","T","W","T","F","S"];
 
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
+export default function Calendar({
+  logs, autoLogs, projectionMode, onDayClick, selectedDate, excludeHolidays,
+}: CalendarProps) {
+  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 1));
+  // Tracks which date just got a confirmation flash (the "Day marked as logged" pill)
+  const [confirmedDate, setConfirmedDate] = useState<string | null>(null);
+  const [confirmTimer, setConfirmTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
-    return { daysInMonth, startingDayOfWeek };
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const fmt = (day: number) => {
+    const m = String(month + 1).padStart(2, "0");
+    const d = String(day).padStart(2, "0");
+    return `${year}-${m}-${d}`;
   };
 
-  const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentMonth);
+  const todayDate = new Date();
+  const isToday = (day: number) =>
+    day === todayDate.getDate() &&
+    month === todayDate.getMonth() &&
+    year === todayDate.getFullYear();
 
-  const formatDateStr = (day: number) => {
-    const year = currentMonth.getFullYear();
-    const month = String(currentMonth.getMonth() + 1).padStart(2, "0");
-    const dayStr = String(day).padStart(2, "0");
-    return `${year}-${month}-${dayStr}`;
-  };
+  const logMap = new Map(logs.map((l) => [l.date, l]));
+  const autoMap = new Map(autoLogs.map((l) => [l.date, l]));
 
-  const getLogForDate = (day: number) => {
-    const dateStr = formatDateStr(day);
-    return logs.find(log => log.date === dateStr);
-  };
+  // Show the confirmation pill on the clicked date for 2 seconds
+  const handleDayClick = useCallback(
+    (dateStr: string) => {
+      onDayClick(dateStr);
+      // Show confirmation only when marking a new log (not unselecting)
+      const alreadyLogged = logMap.get(dateStr)?.status === "Worked";
+      if (!alreadyLogged) {
+        if (confirmTimer) clearTimeout(confirmTimer);
+        setConfirmedDate(dateStr);
+        const t = setTimeout(() => setConfirmedDate(null), 2200);
+        setConfirmTimer(t);
+      }
+    },
+    [onDayClick, logMap, confirmTimer]
+  );
 
-  const isToday = (day: number) => {
-    const today = new Date();
-    return (
-      day === today.getDate() &&
-      currentMonth.getMonth() === today.getMonth() &&
-      currentMonth.getFullYear() === today.getFullYear()
-    );
-  };
-
-  const goToPreviousMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
-  };
-
-  const goToNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
-  };
-
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
+  // Cleanup timer on unmount
+  useEffect(() => () => { if (confirmTimer) clearTimeout(confirmTimer); }, [confirmTimer]);
 
   return (
     <section className="bg-white rounded-3xl shadow-sm p-6">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="font-semibold text-xl text-gray-800">
-          {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+      <div className="flex justify-between items-center mb-5">
+        <h2 className="font-bold text-xl text-gray-800">
+          {MONTH_NAMES[month]} {year}
         </h2>
         <div className="flex gap-2">
           <button
-            onClick={goToPreviousMonth}
+            onClick={() => setCurrentMonth(new Date(year, month - 1))}
             className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 flex items-center justify-center transition"
           >
-            <ChevronLeft className="w-4 h-4 text-gray-600" />
+            <ChevronLeft className="w-4 h-4 text-gray-500" />
           </button>
           <button
-            onClick={goToNextMonth}
+            onClick={() => setCurrentMonth(new Date(year, month + 1))}
             className="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 flex items-center justify-center transition"
           >
-            <ChevronRight className="w-4 h-4 text-gray-600" />
+            <ChevronRight className="w-4 h-4 text-gray-500" />
           </button>
         </div>
       </div>
 
-      {/* Weekday Headers */}
-      <div className="grid grid-cols-7 gap-2 mb-3">
-        {["S", "M", "T", "W", "T", "F", "S"].map((day, i) => (
-          <div key={i} className="text-center text-xs font-medium text-gray-400 py-2">
-            {day}
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 gap-1.5 mb-1.5">
+        {DAY_HEADERS.map((d, i) => (
+          <div key={i} className="text-center text-xs font-semibold text-gray-400 py-1">
+            {d}
           </div>
         ))}
       </div>
 
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2">
-        {/* Empty cells for days before month starts */}
-        {Array.from({ length: startingDayOfWeek }).map((_, i) => (
-          <div key={`empty-${i}`} />
+      {/* Day grid */}
+      <div className="grid grid-cols-7 gap-1.5">
+        {Array.from({ length: firstDow }).map((_, i) => (
+          <div key={`e-${i}`} />
         ))}
 
-        {/* Actual days */}
         {Array.from({ length: daysInMonth }, (_, i) => {
           const day = i + 1;
-          const dateStr = formatDateStr(day);
-          const log = getLogForDate(day);
-          const today = isToday(day);
+          const dateStr = fmt(day);
+          const log = logMap.get(dateStr);
+          const isAutoScheduled = autoMap.has(dateStr);
+          const todayCell = isToday(day);
           const isSelected = selectedDate === dateStr;
+          const isJustConfirmed = confirmedDate === dateStr;
+          const holiday = isPhHoliday(dateStr);
+          const isHoliday = !!holiday && !excludeHolidays;
+
+          // ── Cell style priority ─────────────────────────────────────────
+          let cellBg = "bg-gray-50 border-gray-100 hover:bg-gray-100";
+          let textColor = "text-gray-500";
+          let showHoursBadge = false;
+          let showScheduledHours = false;
+
+          if (log?.status === "Worked") {
+            cellBg = "bg-purple-100 border-purple-200 hover:bg-purple-200 shadow-sm";
+            textColor = "text-purple-800";
+            showHoursBadge = true;
+          } else if (log?.status === "Absent") {
+            cellBg = "bg-orange-50 border-orange-200";
+            textColor = "text-orange-600";
+          } else if (log?.status === "Day Off") {
+            cellBg = "bg-gray-100 border-gray-200";
+            textColor = "text-gray-400";
+          } else if (isHoliday) {
+            cellBg = "bg-red-50 border-red-100 hover:bg-red-100";
+            textColor = "text-red-400";
+          } else if (isAutoScheduled && projectionMode === "auto") {
+            cellBg = "bg-indigo-50 border-indigo-100 hover:bg-indigo-100";
+            textColor = "text-indigo-500";
+            showScheduledHours = true;
+          }
 
           return (
-            <button
-              key={day}
-              onClick={() => onDayClick(dateStr)}
-              className={`
-                aspect-square rounded-xl border-2 transition-all duration-200 relative
-                ${log
-                  ? "bg-purple-100 border-purple-300 hover:bg-purple-200 shadow-sm"
-                  : "bg-gray-50 border-gray-100 hover:bg-gray-100"
-                }
-                ${today ? "ring-2 ring-yellow-300" : ""}
-                ${isSelected ? "ring-2 ring-purple-500 scale-105" : ""}
-              `}
-            >
-              <span className={`text-sm font-medium ${log ? "text-purple-700" : "text-gray-500"}`}>
-                {day}
-              </span>
-              
-              {/* Day indicator */}
-              {log && (
-                <div className="absolute bottom-1 left-1/2 -translate-x-1/2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-                </div>
-              )}
-              
-              {/* Today indicator */}
-              {today && !log && (
-                <div className="absolute top-1 right-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                </div>
-              )}
+            <div key={day} className="relative">
+              <button
+                onClick={() => handleDayClick(dateStr)}
+                title={holiday ? holiday.name : undefined}
+                className={`
+                  w-full aspect-square rounded-xl border-2 flex flex-col items-center justify-center
+                  transition-all duration-150 select-none
+                  ${cellBg}
+                  ${todayCell ? "ring-2 ring-yellow-400 ring-offset-1" : ""}
+                  ${isSelected ? "ring-2 ring-indigo-500 ring-offset-1 scale-110 shadow-lg z-10" : ""}
+                  ${isJustConfirmed ? "scale-110" : ""}
+                `}
+              >
+                <span className={`text-xs font-semibold leading-none ${textColor}`}>{day}</span>
 
-              {/* Hours badge for logged days */}
-              {log && (
-                <div className="absolute -top-1 -right-1 bg-purple-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold shadow-md">
-                  {log.hours}
+                {/* Worked: show hours below day number */}
+                {showHoursBadge && log && (
+                  <span className="text-[9px] font-bold text-purple-500 leading-none mt-0.5">
+                    {log.hours}h
+                  </span>
+                )}
+
+                {/* Auto-scheduled: show projected hours */}
+                {showScheduledHours && isAutoScheduled && (
+                  <span className="text-[9px] font-bold text-indigo-400 leading-none mt-0.5">
+                    {autoMap.get(dateStr)?.hours}h
+                  </span>
+                )}
+
+                {/* Today star */}
+                {todayCell && (
+                  <span className="absolute top-0.5 right-0.5 text-[8px]">⭐</span>
+                )}
+
+                {/* Holiday dot */}
+                {isHoliday && !log && (
+                  <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-400" />
+                )}
+
+                {/* Logged hours badge (top-right corner) */}
+                {log?.status === "Worked" && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-indigo-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-bold shadow">
+                    {log.hours}
+                  </span>
+                )}
+              </button>
+
+              {/* ── Confirmation toast pill ────────────────────────────────
+                  Appears just below the clicked cell, auto-disappears after 2.2s */}
+              {isJustConfirmed && (
+                <div
+                  className="
+                    absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50
+                    flex items-center gap-1 whitespace-nowrap
+                    bg-emerald-500 text-white text-[10px] font-bold
+                    px-2.5 py-1 rounded-full shadow-lg
+                    animate-in fade-in zoom-in-95 duration-200
+                  "
+                >
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  Day marked as logged
                 </div>
               )}
-            </button>
+            </div>
           );
         })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 text-xs text-gray-400 mt-5 pt-4 border-t border-gray-100 justify-center">
+        {[
+          { color: "bg-indigo-200", label: "Scheduled" },
+          { color: "bg-yellow-300", label: "Today" },
+          { color: "bg-red-300", label: "Holiday" },
+          { color: "bg-purple-400", label: "Logged" },
+          { color: "bg-gray-300", label: "Off" },
+        ].map(({ color, label }) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
+            {label}
+          </span>
+        ))}
       </div>
     </section>
   );

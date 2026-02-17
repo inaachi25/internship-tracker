@@ -1,14 +1,19 @@
-import { Download } from "lucide-react";
+"use client";
+
+import { FileText, Zap, CheckCircle2 } from "lucide-react";
 
 type ProgressCardProps = {
   completedHours: number;
   requiredHours: number;
   progressPercent: number;
   remainingHours: number;
+  extraHours: number;
+  isGoalReached: boolean;
   estimatedEndDate: string;
+  projectedEndDate: string; // Always the projected date from settings, never "Goal reached!"
   daysRequired: number;
   workedDays: number;
-  onExport: () => void;
+  onViewReport: () => void;
 };
 
 export default function ProgressCard({
@@ -16,74 +21,139 @@ export default function ProgressCard({
   requiredHours,
   progressPercent,
   remainingHours,
-  estimatedEndDate,
+  extraHours,
+  isGoalReached,
+  projectedEndDate,
   daysRequired,
   workedDays,
-  onExport,
+  onViewReport,
 }: ProgressCardProps) {
+  const gradient = isGoalReached
+    ? "bg-gradient-to-br from-emerald-400 via-teal-500 to-green-600"
+    : "bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-700";
+
   return (
-    <section className="bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-      <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
-      
+    <section
+      className={`${gradient} rounded-3xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-700`}
+    >
+      {/* Decorative blobs */}
+      <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-28 h-28 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2 pointer-events-none" />
+
+      {/* Celebration emojis when done */}
+      {isGoalReached && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {(["top-3 left-6", "top-6 right-10", "top-14 left-1/2", "bottom-10 left-5", "bottom-5 right-7"] as const).map(
+            (pos, i) => (
+              <span
+                key={i}
+                className={`absolute ${pos} text-xl opacity-25 animate-bounce`}
+                style={{ animationDelay: `${i * 0.18}s` }}
+              >
+                {["🎉", "⭐", "✨", "🏆", "💫"][i]}
+              </span>
+            )
+          )}
+        </div>
+      )}
+
       <div className="relative z-10">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xs uppercase tracking-wider opacity-90 font-medium">
+        {/* Header row */}
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-xs uppercase tracking-widest opacity-80 font-semibold flex items-center gap-1.5">
+            {isGoalReached && <CheckCircle2 className="w-3.5 h-3.5" />}
             Your Progress
           </h3>
-          <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-semibold">
-            LIVE
+          <span
+            className={`px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide border ${
+              isGoalReached
+                ? "bg-white/30 border-white/40"
+                : "bg-white/20 border-white/30"
+            }`}
+          >
+            {isGoalReached ? "✓ DONE" : "LIVE"}
           </span>
         </div>
 
-        {/* Main Stats */}
-        <div className="mb-1">
-          <p className="text-4xl font-bold">
-            {completedHours} <span className="text-2xl opacity-80">/ {requiredHours} hrs</span>
-          </p>
-        </div>
-        
-        <p className="text-sm opacity-90 mb-4">{progressPercent.toFixed(1)}%</p>
+        {/* Main hours */}
+        <p className="text-4xl font-extrabold leading-none">
+          {completedHours}
+          <span className="text-xl font-semibold opacity-70"> / {requiredHours} hrs</span>
+        </p>
+        <p className="text-sm opacity-80 mt-1 mb-3">{progressPercent.toFixed(1)}%</p>
 
-        {/* Progress Bar */}
-        <div className="bg-white/20 h-2 rounded-full mb-6 overflow-hidden">
+        {/* Progress bar */}
+        <div className="bg-white/20 h-2.5 rounded-full overflow-hidden mb-5">
           <div
-            className="h-full bg-white rounded-full transition-all duration-500 shadow-lg"
+            className="h-full bg-white rounded-full transition-all duration-700 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
 
-        {/* Days Required Badge */}
-        <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-3 mb-4">
-          <p className="text-xs opacity-80 mb-1 text-center">
-            {workedDays > 0 ? `${workedDays} ${workedDays === 1 ? 'day' : 'days'} logged` : 'No days logged yet'}
-          </p>
-          <p className="text-xs opacity-70 text-center">
-            {daysRequired} {daysRequired === 1 ? 'day' : 'days'} required
-          </p>
+        {/* Logged days / days required */}
+        <div className="bg-white/10 rounded-2xl px-4 py-3 mb-4 flex justify-between items-center">
+          <div className="text-center">
+            <p className="text-xs opacity-70 uppercase tracking-wide">Logged Days</p>
+            <p className="text-2xl font-bold mt-0.5">{workedDays}</p>
+          </div>
+          <div className="w-px h-10 bg-white/20" />
+          <div className="text-center">
+            <p className="text-xs opacity-70 uppercase tracking-wide">
+              {isGoalReached ? "Days Surplus" : "Days Required"}
+            </p>
+            <p className="text-2xl font-bold mt-0.5">
+              {isGoalReached
+                ? `+${Math.round(extraHours / Math.max(1, completedHours / Math.max(1, workedDays)))}`
+                : daysRequired}
+            </p>
+          </div>
         </div>
 
-        {/* Stats Grid */}
+        {/* Bottom stats: Remaining vs Extra + Projected end date */}
         <div className="grid grid-cols-2 gap-3 mb-5">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <p className="text-xs opacity-75 uppercase tracking-wide mb-1">Remaining</p>
-            <p className="text-xl font-semibold">{remainingHours}h</p>
+          {/* Left tile — swaps label/value when goal reached */}
+          <div
+            className={`rounded-xl p-3 ${
+              isGoalReached ? "bg-white/20" : "bg-white/10"
+            }`}
+          >
+            <div className="flex items-center gap-1 mb-0.5">
+              {isGoalReached && <Zap className="w-3 h-3 opacity-80" />}
+              <p className="text-[10px] uppercase tracking-widest opacity-70">
+                {isGoalReached ? "Extra Hours" : "Remaining"}
+              </p>
+            </div>
+            <p
+              className={`text-xl font-bold ${
+                isGoalReached ? "text-yellow-200" : ""
+              }`}
+            >
+              {isGoalReached ? `+${extraHours}h` : `${remainingHours}h`}
+            </p>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-            <p className="text-xs opacity-75 uppercase tracking-wide mb-1">Projected End</p>
-            <p className="text-xs font-semibold leading-tight mt-1">{estimatedEndDate}</p>
+
+          {/* Right tile — ALWAYS shows the projected/actual end date, never "Goal reached!" text */}
+          <div className="bg-white/10 rounded-xl p-3">
+            <p className="text-[10px] uppercase tracking-widest opacity-70 mb-0.5">
+              {isGoalReached ? "Completed On" : "Projected End"}
+            </p>
+            <p className="text-xs font-semibold leading-tight mt-0.5">
+              {projectedEndDate}
+            </p>
           </div>
         </div>
 
-        {/* Export Button */}
+        {/* Report button */}
         <button
-          onClick={onExport}
-          className="w-full bg-white/90 hover:bg-white text-purple-600 py-3 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2 shadow-lg"
+          onClick={onViewReport}
+          className={`w-full py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-lg ${
+            isGoalReached
+              ? "bg-white text-emerald-600 hover:bg-emerald-50"
+              : "bg-white/90 hover:bg-white text-indigo-700"
+          }`}
         >
-          <Download className="w-4 h-4" />
-          View Report & Download
+          <FileText className="w-4 h-4" />
+          View Report &amp; Download
         </button>
       </div>
     </section>
