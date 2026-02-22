@@ -13,7 +13,13 @@ function getWeekKey(date: Date) {
   const yr = mon.getFullYear();
   const weekNum = Math.ceil(((mon.getTime() - new Date(yr,0,1).getTime()) / 86400000 + 1) / 7);
   const fmt = (dt: Date) => dt.toLocaleDateString("en-US", { month:"short", day:"numeric" });
-  return { id: `${yr}-W${String(weekNum).padStart(2,"0")}`, label: `${fmt(mon)} – ${fmt(sun)}, ${yr}`, start: mon.toISOString().split("T")[0], end: sun.toISOString().split("T")[0] };
+  const formatDate = (dt: Date) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  return { id: `${yr}-W${String(weekNum).padStart(2,"0")}`, label: `${fmt(mon)} – ${fmt(sun)}, ${yr}`, start: formatDate(mon), end: formatDate(sun) };
 }
 
 const EMPTY_CHECKIN = (): Omit<WeeklyCheckin,"id"|"weekLabel"|"createdAt"> => ({

@@ -145,7 +145,9 @@ export default function SetupPanel({
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-1">Uncheck days you won't attend.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Uncheck days you won't attend.
+          </p>
         </div>
 
         {/* Projection Mode */}
@@ -170,6 +172,10 @@ export default function SetupPanel({
               ? "📊 Settings above auto-forecast your full schedule"
               : "🖱 Forecasts cleared — click calendar days to log hours manually"}
           </p>
+          {projectionMode === "auto" && (
+            <p className="text-[10px] text-indigo-500 mt-1 font-mono">
+            </p>
+          )}
         </div>
       </section>
 
