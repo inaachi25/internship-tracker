@@ -14,7 +14,7 @@ type ExportData = {
 };
 type Props = {
   data: ExportData; onClose: () => void;
-  onRestoreBackup: (r: { settings: AppSettings; logs: Log[] }) => void;
+  onRestoreBackup: (r: { settings: AppSettings; logs: Log[]; checkins?: WeeklyCheckin[]; projects?: Project[] }) => void;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -146,7 +146,10 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
         const settings: AppSettings = parsed.settings??{requiredHours:parsed.requiredHours??500,hoursPerDay:parsed.hoursPerDay??1,startDate:parsed.startDate??"",workDays:parsed.workDays??[1,2,3,4,5],excludeHolidays:parsed.excludeHolidays??false,projectionMode:parsed.projectionMode??"manual"};
         const logs: Log[]=Array.isArray(parsed.logs)?parsed.logs:[];
         if(typeof settings.requiredHours!=="number"){alert("❌ Invalid backup.");return;}
-        onRestoreBackup({settings,logs}); alert("✅ Backup restored!");
+        const checkins: WeeklyCheckin[] = Array.isArray(parsed.checkins) ? parsed.checkins : [];
+        const projects: Project[] = Array.isArray(parsed.projects) ? parsed.projects : [];
+        onRestoreBackup({settings, logs, checkins, projects});
+        alert("✅ Backup restored with all data!");
       } catch{alert("❌ Could not parse backup file.");}
     };
     reader.readAsText(file);
