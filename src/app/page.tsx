@@ -10,13 +10,14 @@ import WeeklyCheckinPage from "@/components/WeeklyCheckinPage";
 import ProjectsPage from "@/components/ProjectsPage";
 import { isPhHoliday } from "@/data/phHolidays";
 import { Log, AppSettings, WeeklyCheckin, Project } from "@/types/Index";
+import { getTotalHours, createEntry } from "@/lib/logUtils";
 
 type Tab = "tracker" | "checkin" | "projects";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("tracker");
 
-  // ── Settings (blank after reset) ─────────────────────────────────────────
+  // ── Settings ─────────────────────────────────────────────────────────────
   const [requiredHours, setRequiredHours] = useState<number | "">(500);
   const [hoursPerDay, setHoursPerDay] = useState(8);
   const [startDate, setStartDate] = useState("2026-02-16");
@@ -27,11 +28,9 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
 
-  // ── Weekly check-ins & Projects ──────────────────────────────────────────
   const [checkins, setCheckins] = useState<WeeklyCheckin[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
-  // ── Derived: is the setup complete enough to start projecting? ────────────
   const isSetupReady = !!startDate && !!requiredHours && hoursPerDay > 0;
 
   // ── Auto-projected schedule ───────────────────────────────────────────────
@@ -46,15 +45,19 @@ export default function Home() {
 
     while (totalHours < rh && cur <= limit) {
       const dow = cur.getDay();
-      // Use local date components to avoid timezone conversion
       const yyyy = cur.getFullYear();
       const mm = String(cur.getMonth() + 1).padStart(2, '0');
       const dd = String(cur.getDate()).padStart(2, '0');
       const ds = `${yyyy}-${mm}-${dd}`;
       const holiday = isPhHoliday(ds);
       const blocked = excludeHolidays && !!holiday;
+      
       if (workDays.includes(dow) && !blocked) {
-        logs.push({ date: ds, hours: hoursPerDay, overtime: 0, status: "Worked", note: holiday ? holiday.name : "" });
+        logs.push({
+          date: ds,
+          status: "Worked",
+          entries: [createEntry(hoursPerDay, undefined, holiday ? holiday.name : "")],
+        });
         totalHours += hoursPerDay;
       }
       cur.setDate(cur.getDate() + 1);
@@ -68,16 +71,19 @@ export default function Home() {
       const merged = [...autoLogs];
       manualLogs.forEach((ml) => {
         const idx = merged.findIndex((al) => al.date === ml.date);
-        if (idx >= 0) merged[idx] = ml; else merged.push(ml);
+        if (idx >= 0) merged[idx] = ml;
+        else merged.push(ml);
       });
       return merged.sort((a, b) => a.date.localeCompare(b.date));
     }
     return [...manualLogs].sort((a, b) => a.date.localeCompare(b.date));
   }, [projectionMode, autoLogs, manualLogs]);
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Stats (using getTotalHours for multi-entry support) ───────────────────
   const rh = Number(requiredHours) || 0;
-  const totalLoggedHours = activeLogs.reduce((s, l) => l.status === "Worked" ? s + l.hours + l.overtime : s, 0);
+  const totalLoggedHours = activeLogs.reduce((s, log) => 
+    log.status === "Worked" ? s + getTotalHours(log) : s, 0
+  );
   const isGoalReached = rh > 0 && totalLoggedHours >= rh;
   const extraHours = isGoalReached ? totalLoggedHours - rh : 0;
   const remainingHours = isGoalReached ? 0 : rh - totalLoggedHours;
@@ -114,40 +120,29 @@ export default function Home() {
     return end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }, [isSetupReady, projectionMode, autoLogs, hoursPerDay, remainingHours, isGoalReached, activeLogs, workDays, excludeHolidays]);
 
-  // ── Backup download helper (shared with SetupPanel reset modal) ───────────
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleDownloadBackup = () => {
     const backup = {
-      version: "3.0", exportedAt: new Date().toISOString(),
+      version: "4.0", exportedAt: new Date().toISOString(),
       settings: { requiredHours: rh, hoursPerDay, startDate, workDays, excludeHolidays, projectionMode },
       logs: activeLogs, checkins, projects,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "internship_backup.json"; a.click();
+    const a = document.createElement("a");
+    a.href = url; a.download = "internship_backup.json"; a.click();
     URL.revokeObjectURL(url);
   };
 
-  // ── Reset — clears everything to blank state ──────────────────────────────
   const handleReset = () => {
-    setRequiredHours("");
-    setHoursPerDay(0);
-    setStartDate("");
-    setManualLogs([]);
-    setExcludeHolidays(false);
-    setWorkDays([1, 2, 3, 4, 5]);
-    setProjectionMode("auto");
-    setSelectedDate(null);
-    // NOTE: checkins and projects are preserved on reset (only tracker cleared)
+    setRequiredHours(""); setHoursPerDay(0); setStartDate("");
+    setManualLogs([]); setExcludeHolidays(false); setWorkDays([1, 2, 3, 4, 5]);
+    setProjectionMode("auto"); setSelectedDate(null);
   };
 
   const handleProjectionToggle = (mode: "manual" | "auto") => {
     if (mode === "manual" && projectionMode === "auto") {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const today = `${yyyy}-${mm}-${dd}`;
-      setManualLogs(autoLogs.filter((l) => l.date <= today).map((l) => ({ ...l })));
+      if (manualLogs.length === 0) setManualLogs(autoLogs.map((l) => ({ ...l })));
     }
     if (mode === "auto" && projectionMode === "manual") setManualLogs([]);
     setProjectionMode(mode);
@@ -176,9 +171,11 @@ export default function Home() {
   const exportData = {
     settings: { requiredHours: rh, hoursPerDay, startDate, workDays, excludeHolidays, projectionMode } as AppSettings,
     logs: activeLogs,
-    stats: { completedHours: totalLoggedHours, remainingHours, extraHours, progressPercent, workedDays, estimatedEndDate: projectedEndDate, isGoalReached },
-    checkins,
-    projects,
+    stats: {
+      completedHours: totalLoggedHours, remainingHours, extraHours,
+      progressPercent, workedDays, estimatedEndDate: projectedEndDate, isGoalReached,
+    },
+    checkins, projects,
   };
 
   const TABS = [
@@ -189,7 +186,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-rose-50 via-purple-50 to-blue-50 flex flex-col items-center py-8 px-4 text-gray-800">
-      {/* Header */}
       <div className="text-center mb-6">
         <div className="flex justify-center mb-3">
           <div className="bg-gradient-to-br from-rose-200 to-pink-300 rounded-2xl p-4 shadow-lg">
@@ -200,7 +196,6 @@ export default function Home() {
         <p className="text-gray-500 text-sm">Track your hours, exclude off-days, and hit your goal! 🎓</p>
       </div>
 
-      {/* Tab nav */}
       <div className="flex gap-2 bg-white rounded-2xl p-1.5 shadow-sm mb-6 w-full max-w-md">
         {TABS.map((tab) => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
@@ -213,7 +208,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ── TRACKER ─────────────────────────────────────────────────────── */}
       {activeTab === "tracker" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 w-full max-w-6xl gap-6">
           <div className="space-y-6">
@@ -258,12 +252,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── WEEKLY CHECK-IN ──────────────────────────────────────────────── */}
       {activeTab === "checkin" && (
         <WeeklyCheckinPage checkins={checkins} setCheckins={setCheckins} logs={activeLogs} />
       )}
 
-      {/* ── PROJECTS ─────────────────────────────────────────────────────── */}
       {activeTab === "projects" && (
         <ProjectsPage projects={projects} setProjects={setProjects} logs={activeLogs} />
       )}

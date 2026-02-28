@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Plus, Trash2, CheckCircle2, Circle, Calendar, Clock, X, ChevronDown, ChevronUp, Save } from "lucide-react";
 import { Project, Milestone, Log } from "@/types/Index";
+import { getTotalHours } from "@/lib/logUtils";
 
 type Props = { projects: Project[]; setProjects: (p: Project[]) => void; logs: Log[]; };
 
@@ -74,8 +75,18 @@ export default function ProjectsPage({ projects, setProjects, logs }: Props) {
   };
 
   // Get logs for a project
-  const logsForProject = (projectId: string) => logs.filter((l) => l.projectId === projectId && l.status === "Worked");
-  const hoursForProject = (projectId: string) => logsForProject(projectId).reduce((s, l) => s + l.hours, 0);
+  // Get logs that have at least one entry for a project
+  const logsForProject = (projectId: string) => 
+    logs.filter((l) => l.status === "Worked" && l.entries.some(e => e.projectId === projectId));
+  
+  // Sum hours from all entries matching the project
+  const hoursForProject = (projectId: string) => 
+    logs.reduce((sum, log) => {
+      if (log.status !== "Worked") return sum;
+      return sum + log.entries
+        .filter(e => e.projectId === projectId)
+        .reduce((s, e) => s + e.hours + e.overtime, 0);
+    }, 0);
 
   return (
     <div className="w-full max-w-4xl space-y-6">
@@ -247,9 +258,9 @@ export default function ProjectsPage({ projects, setProjects, logs }: Props) {
                               <div className={`w-2 h-8 rounded-full ${project.color} shrink-0`} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold text-gray-800">{dayName(l.date)}</p>
-                                {l.note && <p className="text-xs text-gray-400 truncate italic">"{l.note}"</p>}
+                                {l.entries.some(e => e.note) && <p className="text-xs text-gray-400 truncate italic">"{l.entries.find(e=>e.note)?.note}"</p>}
                               </div>
-                              <span className={`text-white text-xs font-bold px-2.5 py-1 rounded-lg shrink-0 ${project.color}`}>{l.hours}h</span>
+                              <span className={`text-white text-xs font-bold px-2.5 py-1 rounded-lg shrink-0 ${project.color}`}>{getTotalHours(l)}h</span>
                             </div>
                           ))}
                         </div>

@@ -2,6 +2,7 @@
 import { useState, useMemo } from "react";
 import { Plus, ChevronDown, ChevronUp, Trash2, Save, CheckCircle2 } from "lucide-react";
 import { WeeklyCheckin, Log } from "@/types/Index";
+import { getTotalHours } from "@/lib/logUtils";
 
 type Props = { checkins: WeeklyCheckin[]; setCheckins: (c: WeeklyCheckin[]) => void; logs: Log[]; };
 
@@ -64,7 +65,7 @@ export default function WeeklyCheckinPage({ checkins, setCheckins, logs }: Props
     logs.filter((l) => l.status === "Worked").forEach((l) => {
       const info = getWeekKey(new Date(l.date + "T00:00:00"));
       const prev = map.get(info.id) ?? { hours: 0, days: 0, info };
-      map.set(info.id, { hours: prev.hours + l.hours, days: prev.days + 1, info });
+      map.set(info.id, { hours: prev.hours + getTotalHours(l), days: prev.days + 1, info });
     });
     return [...map.values()].sort((a,b) => b.info.id.localeCompare(a.info.id));
   }, [logs]);

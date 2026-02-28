@@ -1,12 +1,20 @@
 export type LogStatus = "Worked" | "Absent" | "Day Off" | "Holiday";
 
-export type Log = {
-  date: string;
+// Individual work session within a day
+export type LogEntry = {
+  id: string;           // unique entry ID
   hours: number;
   overtime: number;
-  status: LogStatus;
+  projectId?: string;
   note: string;
-  projectId?: string; // links this log to a project
+  timeOfDay?: string;  // optional: "Morning", "Afternoon", "Evening", or custom
+};
+
+// Daily log (can contain multiple entries)
+export type Log = {
+  date: string;
+  status: LogStatus;
+  entries: LogEntry[];  // multiple work sessions in one day
 };
 
 export type AppSettings = {

@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { X, FileText, Table2, HardDrive, Upload, CalendarDays, CheckCircle2, FolderOpen, ChevronDown, ChevronUp } from "lucide-react";
 import { Log, AppSettings, WeeklyCheckin, Project } from "@/types/Index";
+import { getTotalHours } from "@/lib/logUtils";
 
 type Stats = {
   completedHours: number; remainingHours: number; extraHours: number;
@@ -45,8 +46,13 @@ function generatePDF(data: ExportData) {
   const genOn = new Date().toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
 
   const monthSections = [...grouped.entries()].map(([key,logs])=>{
-    const mh = logs.reduce((s,l)=>s+l.hours,0);
-    const rows = logs.map(l=>`<tr><td>${l.date} (${dayName(l.date).slice(0,3)})</td><td>${l.hours}h</td><td>${l.projectId ? (data.projects.find(p=>p.id===l.projectId)?.name||"—") : "—"}</td><td>${l.note||"—"}</td></tr>`).join("");
+    const mh = logs.reduce((s,l)=>s+getTotalHours(l),0);
+    const rows = logs.flatMap(l => 
+      l.entries.map(entry => {
+        const proj = data.projects.find(p=>p.id===entry.projectId);
+        return `<tr><td>${l.date} (${dayName(l.date).slice(0,3)})</td><td>${entry.hours}h</td><td>${proj?.name||"—"}</td><td>${entry.note||"—"}</td></tr>`;
+      })
+    ).join("");
     return `<div class="section"><h2>${moLabel(key)}</h2><table><thead><tr><th>Date</th><th>Hours</th><th>Project</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table><p class="total">Month Total: <strong>${mh}h</strong></p></div>`;
   }).join("");
 
@@ -61,10 +67,10 @@ function generatePDF(data: ExportData) {
     </div>`).join("") : "<p style='color:#9ca3af'>No check-ins recorded.</p>";
 
   const projectSections = data.projects.length ? data.projects.map(p=>{
-    const pLogs = data.logs.filter(l=>l.projectId===p.id && l.status==="Worked");
-    const ph = pLogs.reduce((s,l)=>s+l.hours,0);
+    const pLogs = data.logs.filter(l=>l.status==="Worked"&&l.entries.some(e=>e.projectId===p.id));
+    const ph = pLogs.reduce((s,l)=>s+l.entries.filter(e=>e.projectId===p.id).reduce((sum,e)=>sum+e.hours+e.overtime,0),0);
     const ms = p.milestones.map(m=>`<li style="color:${m.done?"#10b981":"#374151"}">${m.done?"✓":"○"} ${m.title}${m.dueDate?` (due ${m.dueDate})`:""}</li>`).join("");
-    const rows = pLogs.map(l=>`<tr><td>${l.date}</td><td>${dayName(l.date).slice(0,3)}</td><td>${l.hours}h</td><td>${l.note||"—"}</td></tr>`).join("");
+    const rows = pLogs.flatMap(l=>l.entries.filter(e=>e.projectId===p.id).map(e=>`<tr><td>${l.date}</td><td>${dayName(l.date).slice(0,3)}</td><td>${e.hours}h</td><td>${e.note||"—"}</td></tr>`)).join("");
     return `<div class="section"><h2>📁 ${p.name}</h2>${p.description?`<p style="color:#6b7280;margin-bottom:8px">${p.description}</p>`:""}${ms?`<p><strong>Milestones:</strong></p><ul>${ms}</ul>`:""}${rows?`<table><thead><tr><th>Date</th><th>Day</th><th>Hours</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table><p class="total">Total: <strong>${ph}h</strong></p>`:"<p style='color:#9ca3af'>No sessions logged for this project.</p>"}</div>`;
   }).join("") : "<p style='color:#9ca3af'>No projects created.</p>";
 
@@ -110,7 +116,12 @@ function generatePDF(data: ExportData) {
 function exportCSV(data: ExportData) {
   if(!data.logs.length){alert("No logs to export.");return;}
   const header="Date,Day,Hours,Overtime,Status,Project,Notes\n";
-  const rows=data.logs.map(l=>`${l.date},${dayName(l.date)},${l.hours},${l.overtime},${l.status},"${data.projects.find(p=>p.id===l.projectId)?.name||""}","${l.note||""}"`).join("\n");
+  const rows=data.logs.flatMap(l=>
+    l.entries.map(e=>{
+      const proj=data.projects.find(p=>p.id===e.projectId);
+      return `${l.date},${dayName(l.date)},${e.hours},${e.overtime},${l.status},"${proj?.name||""}","${e.note||""}"`;
+    })
+  ).join("\n");
   dl(header+rows,"internship_logs.csv","text/csv");
 }
 
@@ -228,7 +239,7 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
               </div>
             ) : (
               [...grouped.entries()].map(([key,logs])=>{
-                const mh=logs.reduce((s,l)=>s+l.hours,0);
+                const mh=logs.reduce((s,l)=>s+getTotalHours(l),0);
                 return (
                   <div key={key}>
                     <div className="flex justify-between items-center mb-3">
@@ -240,7 +251,6 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                       {logs.map((log)=>{
-                        const proj=data.projects.find(p=>p.id===log.projectId);
                         return (
                           <div key={log.date} className="flex items-center gap-3 bg-gray-50 rounded-2xl p-3 border border-gray-100">
                             <div className="flex flex-col items-center justify-center bg-white rounded-xl shadow-sm w-12 h-12 border border-gray-200 shrink-0">
@@ -249,10 +259,18 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-bold text-gray-800 text-sm">{dayName(log.date)}</p>
-                              {proj && <p className="text-[10px] font-semibold text-indigo-500 flex items-center gap-1"><FolderOpen className="w-3 h-3"/>{proj.name}</p>}
-                              {log.note && <p className="text-[10px] text-gray-400 truncate italic">"{log.note}"</p>}
+                              {log.entries.length > 1 && <p className="text-[10px] text-gray-400">{log.entries.length} sessions</p>}
+                              {log.entries.slice(0,2).map((entry,i)=>{
+                                const proj=data.projects.find(p=>p.id===entry.projectId);
+                                return (
+                                  <div key={i} className="text-[10px] text-gray-500 truncate">
+                                    {proj && <span className="font-semibold text-indigo-500">{proj.name}</span>}
+                                    {entry.note && <span className="italic"> - {entry.note}</span>}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            <span className="bg-indigo-600 text-white text-sm font-extrabold px-3 py-1.5 rounded-xl shadow shrink-0">{log.hours}h</span>
+                            <span className="bg-indigo-600 text-white text-sm font-extrabold px-3 py-1.5 rounded-xl shadow shrink-0">{getTotalHours(log)}h</span>
                           </div>
                         );
                       })}
@@ -311,8 +329,8 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
             ) : (
               <div className="space-y-4">
                 {data.projects.map((p)=>{
-                  const pLogs=data.logs.filter(l=>l.projectId===p.id&&l.status==="Worked");
-                  const ph=pLogs.reduce((s,l)=>s+l.hours,0);
+                  const pLogs=data.logs.filter(l=>l.status==="Worked"&&l.entries.some(e=>e.projectId===p.id));
+                  const ph=pLogs.reduce((s,l)=>s+l.entries.filter(e=>e.projectId===p.id).reduce((sum,e)=>sum+e.hours+e.overtime,0),0);
                   const done=p.milestones.filter(m=>m.done).length;
                   return (
                     <div key={p.id} className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden">
@@ -321,7 +339,7 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-gray-800">{p.name}</p>
                           {p.description && <p className="text-xs text-gray-400 truncate">{p.description}</p>}
-                          <p className="text-xs text-gray-500 mt-1">{ph}h logged · {pLogs.length} session{pLogs.length!==1?"s":""} · {done}/{p.milestones.length} milestones done</p>
+                          <p className="text-xs text-gray-500 mt-1">{ph}h logged · {pLogs.length} day{pLogs.length!==1?"s":""} · {done}/{p.milestones.length} milestones done</p>
                         </div>
                       </div>
                       {p.milestones.length > 0 && (
@@ -343,13 +361,15 @@ export default function ReportModal({ data, onClose, onRestoreBackup }: Props) {
                                 <div className={`w-1.5 h-6 rounded-full ${p.color} shrink-0`}/>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-semibold text-gray-700">{dayName(l.date).slice(0,3)}, {l.date}</p>
-                                  {l.note && <p className="text-[10px] text-gray-400 truncate italic">{l.note}</p>}
+                                  {l.entries.filter(e=>e.projectId===p.id).map((e,i)=>(
+                                    <p key={i} className="text-[10px] text-gray-400 truncate italic">{e.note||`Session ${i+1}`}</p>
+                                  ))}
                                 </div>
-                                <span className={`text-white text-xs font-bold px-2 py-0.5 rounded-lg ${p.color} shrink-0`}>{l.hours}h</span>
+                                <span className={`text-white text-xs font-bold px-2 py-0.5 rounded-lg ${p.color} shrink-0`}>{getTotalHours(l)}h</span>
                               </div>
                             ))}
                           </div>
-                          {pLogs.length > 4 && <p className="text-xs text-gray-400 text-center mt-2">+{pLogs.length-4} more sessions — see PDF for full list</p>}
+                          {pLogs.length > 4 && <p className="text-xs text-gray-400 text-center mt-2">+{pLogs.length-4} more days — see PDF for full list</p>}
                         </div>
                       )}
                     </div>

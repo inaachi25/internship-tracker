@@ -3,22 +3,18 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, CheckCircle2, CalendarDays } from "lucide-react";
 import { Log } from "@/types/Index";
 import { isPhHoliday } from "@/data/phHolidays";
+import { getTotalHours } from "@/lib/logUtils";
 
 type Props = {
-  logs: Log[]; 
-  autoLogs: Log[]; 
-  projectionMode: "manual" | "auto";
-  onDayClick: (ds: string) => void; 
-  selectedDate: string | null;
-  excludeHolidays: boolean; 
-  startDate: string;
+  logs: Log[]; autoLogs: Log[]; projectionMode: "manual" | "auto";
+  onDayClick: (ds: string) => void; selectedDate: string | null;
+  excludeHolidays: boolean; startDate: string;
 };
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DOW = ["S","M","T","W","T","F","S"];
 
 export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, selectedDate, excludeHolidays, startDate }: Props) {
-  // Initialized to Feb 2026 as per your original code
   const [cur, setCur] = useState(new Date(2026, 1));
   const [confirmedDate, setConfirmedDate] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,28 +22,14 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
   // When startDate changes, navigate calendar to that month
   useEffect(() => {
     if (startDate) {
-      /**
-       * FIX: Use forward slashes instead of dashes for parsing.
-       * This forces local time parsing instead of UTC, which fixes the
-       * day-of-week shift (the "Monday is Sunday" bug).
-       */
-      const stableDateString = startDate.replace(/-/g, "/");
-      const d = new Date(stableDateString);
-      
-      if (!isNaN(d.getTime())) {
-        setCur(new Date(d.getFullYear(), d.getMonth()));
-      }
+      const d = new Date(startDate + "T00:00:00");
+      setCur(new Date(d.getFullYear(), d.getMonth()));
     }
   }, [startDate]);
 
   const yr = cur.getFullYear(), mo = cur.getMonth();
-  
-  /**
-   * FIX: Ensure the first day of the month is also calculated using stable logic
-   */
   const firstDow = new Date(yr, mo, 1).getDay();
   const daysInMo = new Date(yr, mo + 1, 0).getDate();
-  
   const fmt = (d: number) => `${yr}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
   const today = new Date();
@@ -68,6 +50,7 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
+  // Determine if we should show the "Start Planning" empty state
   const isBlankState = !startDate;
 
   return (
@@ -87,12 +70,10 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
 
       {/* Weekday headers */}
       <div className="grid grid-cols-7 gap-1.5 mb-1.5">
-        {DOW.map((d, i) => (
-          <div key={i} className="text-center text-xs font-semibold text-gray-300 py-1">{d}</div>
-        ))}
+        {DOW.map((d, i) => <div key={i} className="text-center text-xs font-semibold text-gray-300 py-1">{d}</div>)}
       </div>
 
-      {/* Day grid */}
+      {/* Day grid (always rendered, dimmed when blank state) */}
       <div className={`grid grid-cols-7 gap-1.5 ${isBlankState ? "opacity-30 pointer-events-none select-none" : ""}`}>
         {Array.from({ length: firstDow }).map((_, i) => <div key={`e-${i}`} />)}
         {Array.from({ length: daysInMo }, (_, i) => {
@@ -111,9 +92,7 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
           let badge = false, schedH = false;
 
           if (log?.status === "Worked") {
-            bg = "bg-purple-100 border-purple-200 hover:bg-purple-200 shadow-sm"; 
-            tc = "text-purple-800"; 
-            badge = true;
+            bg = "bg-purple-100 border-purple-200 hover:bg-purple-200 shadow-sm"; tc = "text-purple-800"; badge = true;
           } else if (log?.status === "Absent") {
             bg = "bg-orange-50 border-orange-200"; tc = "text-orange-600";
           } else if (log?.status === "Day Off") {
@@ -132,11 +111,11 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
                   ${isSel ? "ring-2 ring-indigo-500 ring-offset-1 scale-110 shadow-lg z-10" : ""}
                   ${isConf ? "scale-110" : ""}`}>
                 <span className={`text-xs font-semibold leading-none ${tc}`}>{day}</span>
-                {badge && log && <span className="text-[9px] font-bold text-purple-500 leading-none mt-0.5">{log.hours}h</span>}
-                {schedH && <span className="text-[9px] font-bold text-indigo-400 leading-none mt-0.5">{autoMap.get(ds)?.hours}h</span>}
+                {badge && log && <span className="text-[9px] font-bold text-purple-500 leading-none mt-0.5">{getTotalHours(log)}h</span>}
+                {schedH && <span className="text-[9px] font-bold text-indigo-400 leading-none mt-0.5">{getTotalHours(autoMap.get(ds)!)}h</span>}
                 {todayCell && <span className="absolute top-0.5 right-0.5 text-[8px]">⭐</span>}
                 {isHol && !log && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-400" />}
-                {badge && <span className="absolute -top-1.5 -right-1.5 bg-indigo-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-bold shadow">{log?.hours}</span>}
+                {badge && <span className="absolute -top-1.5 -right-1.5 bg-indigo-600 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center font-bold shadow">{getTotalHours(log!)}</span>}
               </button>
               {isConf && (
                 <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 flex items-center gap-1 whitespace-nowrap bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-lg">
@@ -148,7 +127,7 @@ export default function Calendar({ logs, autoLogs, projectionMode, onDayClick, s
         })}
       </div>
 
-      {/* Overlay for blank state */}
+      {/* ── "Start Planning" overlay — shown when no startDate ───────────── */}
       {isBlankState && (
         <div className="absolute inset-0 flex items-center justify-center rounded-3xl pointer-events-none">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 px-8 py-7 flex flex-col items-center text-center max-w-xs mx-4 pointer-events-auto">
